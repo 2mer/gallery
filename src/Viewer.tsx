@@ -7,7 +7,8 @@ import {
 	TextStyle,
 	TextureStyle,
 } from 'pixi.js';
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams, useRoute } from 'wouter';
 
 TextureStyle.defaultOptions.scaleMode = 'nearest';
 
@@ -64,6 +65,13 @@ const titles = {
 function Viewer() {
 	const ref = useRef<HTMLCanvasElement>(null);
 
+	const [, params] = useRoute('/:page');
+
+	const page = params?.page ?? 'home';
+
+	const [app, setApp] = useState<Application>();
+	const [viewport, setViewport] = useState<Viewport>();
+
 	React.useEffect(() => {
 		async function setupApplication() {
 			const app = new Application();
@@ -88,14 +96,28 @@ function Viewer() {
 
 			await assetLoad;
 
-			let x = 0;
-			let y = 0;
-			let depth = 0;
-			let pendingY = 0;
+			setApp(app);
+			setViewport(viewport);
+		}
 
-			const depthSize = 40;
+		setupApplication();
+	}, []);
 
-			const t = viewport.addChild(
+	// add game objects
+	useEffect(() => {
+		if (!app) return;
+		if (!viewport) return;
+
+		let x = 0;
+		let y = 0;
+		let depth = 0;
+		let pendingY = 0;
+
+		const depthSize = 40;
+
+		function drawHeader() {
+			y += 40;
+			const t = viewport!.addChild(
 				new Text({
 					text: "Welcome to Tomer Atar's asset gallery!\nAll rights reserved",
 					style: {
@@ -107,74 +129,189 @@ function Viewer() {
 				})
 			);
 
+			t.y = y;
+
 			y += t.height;
 			y += 80;
 
-			const iconPadX = 2;
-			// addTextureRow(
-			// 	'Echoes of the Elders (EOTE) textures',
-			// 	eoteImageUrls
-			// );
+			return t;
+		}
 
-			function drawText(text: string, style?: TextStyle) {
-				const t = viewport.addChild(
-					new Text({
-						text,
-						style: {
-							fontFamily: 'Arial',
-							fontSize: 40,
-							fill: 0xffffff,
-							...style,
-						},
-					})
-				);
+		const iconPadX = 2;
 
-				t.y = y;
-				t.x = depth * depthSize;
+		const sprites: Sprite[] = [];
+		const texts: Text[] = [];
 
-				y += t.height;
+		function drawText(text: string, style?: TextStyle) {
+			const t = viewport!.addChild(
+				new Text({
+					text,
+					style: {
+						fontFamily: 'Arial',
+						fontSize: 40,
+						fill: 0xffffff,
+						...style,
+					},
+				})
+			);
+
+			t.y = y;
+			t.x = depth * depthSize;
+
+			y += t.height;
+
+			texts.push(t);
+
+			return t;
+		}
+
+		function drawImage(image: string) {
+			const sprite = Sprite.from(image);
+
+			sprite.x = x + depth * depthSize;
+			sprite.y = y;
+
+			viewport!.addChild(sprite);
+
+			x += sprite.width;
+			x += iconPadX;
+			// y += sprite.height;
+			pendingY = Math.max(pendingY, sprite.height);
+
+			sprites.push(sprite);
+
+			return sprite;
+		}
+
+		function drawFolder(folder: Record<string, any>) {
+			x = 0;
+			depth++;
+			let drawn = false;
+
+			const imageEntries = Object.entries(folder).filter(
+				([, v]) => typeof v === 'string'
+			);
+			const subfolderEntries = Object.entries(folder).filter(
+				([, v]) => typeof v === 'object'
+			);
+
+			for (const [, value] of imageEntries) {
+				drawImage(value);
+				drawn = true;
 			}
 
-			function drawImage(image: string) {
-				const sprite = Sprite.from(image);
+			y += pendingY;
+			pendingY = 0;
 
-				sprite.x = x + depth * depthSize;
+			for (const [key, value] of subfolderEntries) {
+				// @ts-ignore
+				drawText(titles[key as any] ?? key);
+				drawFolder(value);
+			}
+
+			depth--;
+
+			if (drawn) y += 40;
+		}
+
+		function destroyObjects() {
+			texts.forEach((t) =>
+				t.destroy({
+					texture: false,
+					textureSource: false,
+				})
+			);
+			texts.length = 0;
+			sprites.forEach((s) =>
+				s.destroy({
+					texture: false,
+					textureSource: false,
+					children: false,
+					style: false,
+					context: false,
+				})
+			);
+			sprites.length = 0;
+		}
+
+		function drawNormalView(folder: Record<string, any>) {
+			drawHeader();
+			drawFolder(folder);
+		}
+
+		function drawHeightSorted(folder: Record<string, any>) {
+			drawFolder(folder);
+
+			texts.forEach((t) => t.destroy());
+
+			x = 0;
+			y = 0;
+			drawHeader();
+
+			drawText('Sorted by height');
+
+			y += 50;
+
+			sprites.sort((a, b) => a.height - b.height);
+
+			let lastHeight = 0;
+
+			for (const sprite of sprites) {
+				sprite.x = x;
 				sprite.y = y;
 
-				viewport.addChild(sprite);
+				if (sprite.height > lastHeight) {
+					lastHeight = sprite.height;
+
+					const t = viewport!.addChild(
+						new Text({
+							text: lastHeight,
+							style: {
+								fontFamily: 'Arial',
+								fontSize: 24,
+								fill: 0xffffff,
+							},
+						})
+					);
+
+					texts.push(t);
+
+					t.anchor.set(0, 1);
+
+					const ratio = t.width / t.height;
+					t.width = sprite.width;
+					t.height = t.width / ratio;
+					t.x = x;
+					t.y = y - iconPadX;
+				}
 
 				x += sprite.width;
 				x += iconPadX;
-				// y += sprite.height;
-				pendingY = Math.max(pendingY, sprite.height);
 			}
-
-			function drawFolder(folder: Record<string, any>) {
-				x = 0;
-				depth++;
-				let drawn = false;
-				for (const [key, value] of Object.entries(folder)) {
-					if (typeof value === 'object') {
-						// @ts-ignore
-						drawText(titles[key as any] ?? key);
-						drawFolder(value);
-					} else {
-						drawImage(value);
-						drawn = true;
-					}
-				}
-				depth--;
-				y += pendingY;
-				pendingY = 0;
-
-				if (drawn) y += 40;
-			}
-
-			drawFolder(folders);
 		}
 
-		setupApplication();
-	}, []);
+		const viewToSetup = {
+			home: () => drawNormalView(folders),
+			byHeight: () => drawHeightSorted(folders),
+		};
+
+		// @ts-ignore
+		viewToSetup[page]();
+
+		return () => {
+			destroyObjects();
+		};
+	}, [app, viewport, page]);
+
+	// cleanup
+	useEffect(() => {
+		if (!app) return;
+		if (!viewport) return;
+
+		return () => {
+			app.destroy();
+		};
+	}, [app, viewport]);
 
 	return <canvas ref={ref} className='w-full h-full'></canvas>;
 }
