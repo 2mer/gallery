@@ -8,7 +8,7 @@ import {
 	TextureStyle,
 } from 'pixi.js';
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useRoute } from 'wouter';
+import { useRoute } from 'wouter';
 
 TextureStyle.defaultOptions.scaleMode = 'nearest';
 
